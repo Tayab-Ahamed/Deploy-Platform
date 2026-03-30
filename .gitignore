@@ -1,0 +1,27 @@
+# Build outputs
+/api/deploy-platform-api
+/frontend/dist/
+/frontend/node_modules/
+
+# Runtime temp files
+/tmp/
+*.zip
+*.log
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# k3s kubeconfig (contains certs — never commit)
+k3s.yaml
+kubeconfig
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-platform-api
+  namespace: deployments
+  labels:
+    app: deploy-platform-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deploy-platform-api
+  template:
+    metadata:
+      labels:
+        app: deploy-platform-api
+    spec:
+      serviceAccountName: deploy-platform-sa
+      containers:
+        - name: api
+          image: localhost:30500/deploy-platform-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KUBECONFIG
+              value: ""   # uses in-cluster config when running inside k8s
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deploy-platform-api
+  namespace: deployments
+spec:
+  selector:
+    app: deploy-platform-api
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30808
+  type: NodePort
+---
+# ServiceAccount + ClusterRole so the API can manage k8s resources
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deploy-platform-sa
+  namespace: deployments
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deploy-platform-role
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get","list","create","update","patch","delete"]
+  - apiGroups: [""]
+    resources: ["services","namespaces"]
+    verbs: ["get","list","create","update","patch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get","list","create","update","patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: deploy-platform-binding
+subjects:
+  - kind: ServiceAccount
+    name: deploy-platform-sa
+    namespace: deployments
+roleRef:
+  kind: ClusterRole
+  name: deploy-platform-role
+  apiGroup: rbac.authorization.k8s.io

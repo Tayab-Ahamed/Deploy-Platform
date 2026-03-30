@@ -1,0 +1,77 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Deploy Platform — Local Dev Stack (WSL2)
+#
+#  Starts:
+#   • registry   Private Docker registry           → localhost:5000
+#   • api        Go REST API                       → localhost:8080
+#   • nginx      Reverse proxy                     → localhost:80
+#
+#  The React frontend is intentionally NOT in this compose file.
+#  Run it separately for hot-reload: cd frontend && npm run dev
+#  The start.sh script handles this automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Private Docker registry ─────────────────────────────────────────
+  registry:
+    image: registry:2
+    container_name: dp-registry
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/v2/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Go API ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: dp-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Allows the API container to run `docker build` using the host daemon
+      - /var/run/docker.sock:/var/run/docker.sock
+      # k3s kubeconfig (read-only) so the API can talk to Kubernetes
+      - /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro
+    environment:
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    depends_on:
+      registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Nginx reverse proxy ─────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: dp-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    extra_hosts:
+      # Lets nginx reach the WSL2 host's ports (for proxying to Vite, k3s)
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  registry-data:
