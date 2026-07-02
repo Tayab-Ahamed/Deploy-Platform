@@ -1,144 +1,110 @@
-# Deploy Platform
+# Deploy Platform 🚀
 
-A self-hosted mini Heroku / Vercel clone. Push a zipped project → auto-builds a Docker container → deploys it to Kubernetes (k3s) → assigns it a subdomain URL.
+A self-hosted, zero-dependency developer PaaS (Heroku / Vercel clone). Package your project → auto-build container → deploy to Kubernetes (k3s) → assign automatic `*.localhost` subdomains with real-time diagnostics.
 
-## Stack
+---
 
-| Layer | Tech |
-|---|---|
-| API | Go 1.22 (zero external dependencies, pure stdlib) |
-| Frontend | React 18 + Vite |
-| Orchestration | k3s (lightweight Kubernetes) |
-| Proxy | Nginx |
-| Registry | Docker Registry v2 |
-| Dev env | Docker Compose |
+## Architecture Flow
 
-## Quick start (WSL2 / Linux)
+```mermaid
+graph TD
+    A[Dashboard / CLI] -->|POST /deploy| B[Go API Server]
+    B -->|Persist Job| C[JSON Database /data]
+    B -->|Queue Job| D[Build Queue]
+    D -->|docker build & push| E[Local Registry :5000]
+    D -->|apply manifests| F[K3s Cluster]
+    G[Browser] -->|*.localhost| H[Nginx Proxy :80]
+    H -->|Route Ingress| F
+```
 
+---
+
+## ⚡ Key Features
+
+* **📦 Instant Containerization:** Auto-detects `Dockerfile`, builds image, and pushes to local registry.
+* **💾 Persistent Config database:** Pure standard-library JSON file-backed database persists job data across restarts.
+* **🔑 Environment Variables:** Custom key-value variables dynamically injected into K8s Pod specifications.
+* **🩺 Real-Time Diagnostics:** Monitor active Pod phases, container age, and crash restarts directly from the UI.
+* **💻 Interactive Console Logs:** Stream runtime `stdout`/`stderr` container logs on-demand.
+* **⚙️ Scaling & Lifecycle:** Scale replica instances (0–10) or purge all K8s resources with a single click.
+* **🌐 Zero-Config subdomains:** Automatic DNS routing for `http://<app-name>.localhost` out-of-the-box.
+
+---
+
+## 🛠 Tech Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| **API Backend** | Go 1.22 (Pure standard library, zero external dependencies) |
+| **Frontend** | React 18 + Vite (Premium glassmorphic theme & CSS animations) |
+| **Orchestrator** | k3s (Lightweight Kubernetes cluster) |
+| **Reverse Proxy** | Nginx (Wildcard routing) |
+| **Registry** | Docker Registry v2 |
+| **Dev Environment** | Docker Compose |
+
+---
+
+## 🚀 Quick Start (WSL2 / Linux)
+
+### 1. Install & Configure Cluster
 ```bash
-# 1. Install dependencies (Docker, Go, k3s)
+# 1. Install dependencies (Docker, Go 1.22, k3s)
 chmod +x scripts/install.sh && ./scripts/install.sh
 
-# 2. Reload shell
+# 2. Reload shell configuration
 newgrp docker && source ~/.bashrc
+```
 
-# 3. Start the platform
+### 2. Launch the Platform
+```bash
+# Start the orchestration stack
 chmod +x scripts/start.sh && ./scripts/start.sh
+```
+* Access the Dashboard: **`http://localhost:5173`**
+* Health API check: `http://localhost:8080/health`
 
-# 4. Open dashboard
-#    http://localhost:5173
-
-# 5. Deploy the included sample app
-chmod +x scripts/deploy-cli.sh
+### 3. Deploy Your First App
+```bash
+# Deploy the included sample application
 ./scripts/deploy-cli.sh hello-world ./sample-app
 ```
 
-## How it works
+---
 
-```
-CLI / Dashboard
-      │  ZIP + POST /deploy
-      ▼
-  Go API (:8080)
-      │  queues job
-      ▼
-  Build Worker
-      │  docker build → docker push → localhost:5000
-      ▼
-  k8s Deployer
-      │  Deployment + Service + Ingress
-      ▼
-  k3s cluster
-      │
-      ▼
-  http://your-app.localhost
-```
-
-## Project structure
+## 📂 Project Structure
 
 ```
 deploy-platform/
-├── api/                   Go REST API (zero external deps)
-│   ├── main.go
-│   ├── builder/           docker build + push + job queue
-│   ├── handlers/          HTTP handlers (deploy, status, list)
-│   ├── k8s/               Kubernetes REST client (pure stdlib)
-│   └── models/            DeployJob struct
-├── frontend/              React dashboard (Vite)
-│   └── src/
-│       └── components/    DeployForm, DeployCard, LogViewer, StatusBadge
-├── nginx/                 Reverse proxy config
-├── k8s-manifests/         Namespace, Registry, API deployment YAMLs
-├── scripts/               install.sh, start.sh, deploy-cli.sh
-├── sample-app/            Test app (Go HTTP server + Dockerfile)
-└── docker-compose.yml     Local dev stack
+├── api/                   Go API Backend (zero external deps)
+│   ├── builder/           Job queue, build workers, persistence
+│   ├── handlers/          Status, deploy, delete, scale, pods, logs
+│   ├── k8s/               K8s API client (pure stdlib)
+│   └── models/            DeployJob model
+├── frontend/              React Dashboard
+│   ├── src/components/    DeployForm, DeployCard, StatusBadge, LogViewer
+│   └── src/api/client.js  REST Client
+├── nginx/                 Reverse proxy configuration
+├── k8s-manifests/         K3s Namespace, Registry, and Ingress manifests
+├── scripts/               Installer and CLI tools
+└── docker-compose.yml     Local development stack config
 ```
 
-## Deploying your own apps
+---
 
-Your project needs:
-1. A `Dockerfile` at the root
-2. The container must listen on port `8080`
-
-```bash
-./scripts/deploy-cli.sh <app-name> ./path/to/project
-```
-
-### Example Dockerfiles
-
-**Node.js**
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-COPY . .
-EXPOSE 8080
-CMD ["node", "index.js"]
-```
-
-**Python**
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE 8080
-CMD ["python", "app.py"]
-```
-
-## API reference
+## 📜 API Reference
 
 | Method | Path | Description |
-|---|---|---|
-| `POST` | `/deploy` | Submit a zip for deployment |
+| :--- | :--- | :--- |
+| `POST` | `/deploy` | Deploy a ZIP archive |
 | `GET` | `/deploy` | List all deployments |
-| `GET` | `/deploy/:id` | Get status + logs for a deployment |
-| `GET` | `/health` | Health check |
+| `GET` | `/deploy/:id` | Get job status & build logs |
+| `DELETE` | `/deploy/:id` | Undeploy and purge K8s resources |
+| `POST` | `/deploy/:id/scale` | Scale replica instance counts |
+| `GET` | `/deploy/:id/pods` | Fetch live Pod status and restarts |
+| `GET` | `/deploy/:id/pods/:pod/logs` | Fetch runtime pod stdout/stderr |
 
-## Troubleshooting
+---
 
-**Docker permission denied**
-```bash
-newgrp docker
-```
+## ⚖️ License
 
-**k3s not starting in WSL2**
-Add to `/etc/wsl.conf`:
-```ini
-[boot]
-command="mount --make-rshared /"
-```
-Then restart: `wsl --shutdown` in PowerShell.
-
-**Registry push fails**
-Check `/etc/docker/daemon.json` contains:
-```json
-{"insecure-registries": ["localhost:5000"]}
-```
-Then: `sudo service docker restart`
-
-## License
-
-MIT
+MIT License. Open-source PaaS for local development.

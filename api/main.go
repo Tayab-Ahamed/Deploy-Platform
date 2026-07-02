@@ -36,12 +36,52 @@ func main() {
 	})
 
 	mux.HandleFunc("/deploy/", func(w http.ResponseWriter, r *http.Request) {
-		// Reject deeper paths like /deploy/id/extra
-		if strings.Count(strings.Trim(r.URL.Path, "/"), "/") > 1 {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) < 2 {
 			http.NotFound(w, r)
 			return
 		}
-		handlers.StatusHandler(w, r)
+
+		if len(parts) == 2 {
+			switch r.Method {
+			case http.MethodGet:
+				handlers.StatusHandler(w, r)
+			case http.MethodDelete, http.MethodOptions:
+				handlers.DeleteHandler(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[2] == "scale" {
+			if r.Method == http.MethodPost || r.Method == http.MethodOptions {
+				handlers.ScaleHandler(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[2] == "pods" {
+			if r.Method == http.MethodGet || r.Method == http.MethodOptions {
+				handlers.PodsHandler(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		if len(parts) == 5 && parts[2] == "pods" && parts[4] == "logs" {
+			if r.Method == http.MethodGet || r.Method == http.MethodOptions {
+				handlers.PodLogsHandler(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		http.NotFound(w, r)
 	})
 
 	srv := &http.Server{

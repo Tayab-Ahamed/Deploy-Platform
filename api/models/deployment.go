@@ -13,12 +13,14 @@ const (
 )
 
 type DeployJob struct {
-	ID        string       `json:"id"`
-	AppName   string       `json:"app_name"`
-	ImageTag  string       `json:"image_tag"`
-	Status    DeployStatus `json:"status"`
-	Logs      []string     `json:"logs"`
-	URL       string       `json:"url"`
-	CreatedAt time.Time    `json:"created_at"`
-	SourceDir string       `json:"-"`
+	ID        string            `json:"id"`
+	AppName   string            `json:"app_name"`
+	ImageTag  string            `json:"image_tag"`
+	Status    DeployStatus      `json:"status"`
+	Logs      []string          `json:"logs"`
+	URL       string            `json:"url"`
+	CreatedAt time.Time         `json:"created_at"`
+	SourceDir string            `json:"-"`
+	EnvVars   map[string]string `json:"env_vars,omitempty"`
+	Replicas  int               `json:"replicas,omitempty"`
 }

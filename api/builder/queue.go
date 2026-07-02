@@ -3,6 +3,9 @@ package builder
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"deploy-platform/models"
@@ -15,22 +18,82 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// JobStore is a thread-safe in-memory store for deploy jobs.
+var dataDir = "/data/jobs"
+
+// JobStore is a thread-safe persistent store for deploy jobs.
 type JobStore struct {
 	mu   sync.RWMutex
 	jobs map[string]*models.DeployJob
 }
 
-var Store = &JobStore{jobs: make(map[string]*models.DeployJob)}
+var Store *JobStore
+
+func init() {
+	if os.PathSeparator == '\\' {
+		dataDir = "./data/jobs"
+	}
+	Store = &JobStore{jobs: make(map[string]*models.DeployJob)}
+	Store.loadAll()
+}
+
+func (s *JobStore) loadAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return
+	}
+
+	files, err := os.ReadDir(dataDir)
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(dataDir, file.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var job models.DeployJob
+		if err := json.Unmarshal(data, &job); err != nil {
+			continue
+		}
+		s.jobs[job.ID] = &job
+	}
+}
+
+func (s *JobStore) save(job *models.DeployJob) {
+	path := filepath.Join(dataDir, job.ID+".json")
+	data, err := json.MarshalIndent(job, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0644)
+}
 
 func (s *JobStore) Set(job *models.DeployJob) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cp := *job
 	logs := make([]string, len(job.Logs))
 	copy(logs, job.Logs)
 	cp.Logs = logs
+
+	if job.EnvVars != nil {
+		envCopy := make(map[string]string, len(job.EnvVars))
+		for k, v := range job.EnvVars {
+			envCopy[k] = v
+		}
+		cp.EnvVars = envCopy
+	}
+
 	s.jobs[job.ID] = &cp
+	s.mu.Unlock()
+
+	s.save(&cp)
 }
 
 func (s *JobStore) Get(id string) (*models.DeployJob, bool) {
@@ -44,6 +107,15 @@ func (s *JobStore) Get(id string) (*models.DeployJob, bool) {
 	logs := make([]string, len(j.Logs))
 	copy(logs, j.Logs)
 	cp.Logs = logs
+
+	if j.EnvVars != nil {
+		envCopy := make(map[string]string, len(j.EnvVars))
+		for k, v := range j.EnvVars {
+			envCopy[k] = v
+		}
+		cp.EnvVars = envCopy
+	}
+
 	return &cp, true
 }
 
@@ -56,9 +128,27 @@ func (s *JobStore) All() []*models.DeployJob {
 		logs := make([]string, len(j.Logs))
 		copy(logs, j.Logs)
 		cp.Logs = logs
+
+		if j.EnvVars != nil {
+			envCopy := make(map[string]string, len(j.EnvVars))
+			for k, v := range j.EnvVars {
+				envCopy[k] = v
+			}
+			cp.EnvVars = envCopy
+		}
+
 		out = append(out, &cp)
 	}
 	return out
+}
+
+func (s *JobStore) Delete(id string) {
+	s.mu.Lock()
+	delete(s.jobs, id)
+	s.mu.Unlock()
+
+	path := filepath.Join(dataDir, id+".json")
+	_ = os.Remove(path)
 }
 
 // NewJobID returns a fresh unique ID.

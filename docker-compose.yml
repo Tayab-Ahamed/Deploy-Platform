@@ -46,6 +46,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # k3s kubeconfig (read-only) so the API can talk to Kubernetes
       - /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro
+      # Persistent deployment records
+      - ./data:/data
     environment:
       KUBECONFIG: /etc/rancher/k3s/k3s.yaml
     depends_on:

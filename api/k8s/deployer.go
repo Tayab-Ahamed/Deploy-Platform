@@ -2,9 +2,12 @@ package k8s
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"deploy-platform/models"
 )
@@ -24,7 +27,7 @@ func Deploy(job *models.DeployJob) (string, error) {
 	name := job.AppName
 	image := job.ImageTag
 
-	if err := applyDeployment(c, name, image); err != nil {
+	if err := applyDeployment(c, name, image, job.Replicas, job.EnvVars); err != nil {
 		return "", fmt.Errorf("deployment: %w", err)
 	}
 	if err := applyService(c, name); err != nil {
@@ -39,7 +42,19 @@ func Deploy(job *models.DeployJob) (string, error) {
 
 // ── Deployment ────────────────────────────────────────────────────────
 
-func deploymentJSON(name, image string) string {
+func deploymentJSON(name, image string, replicas int, envVars map[string]string) string {
+	if replicas <= 0 {
+		replicas = 1
+	}
+	var envBlock string
+	if len(envVars) > 0 {
+		var envList []string
+		for k, v := range envVars {
+			envList = append(envList, fmt.Sprintf(`{"name": %q, "value": %q}`, k, v))
+		}
+		envBlock = fmt.Sprintf(`, "env": [%s]`, strings.Join(envList, ","))
+	}
+
 	return fmt.Sprintf(`{
   "apiVersion": "apps/v1",
   "kind": "Deployment",
@@ -49,7 +64,7 @@ func deploymentJSON(name, image string) string {
     "labels": {"app": %q, "managed-by": "deploy-platform"}
   },
   "spec": {
-    "replicas": 1,
+    "replicas": %d,
     "selector": {"matchLabels": {"app": %q}},
     "template": {
       "metadata": {"labels": {"app": %q}},
@@ -59,15 +74,16 @@ func deploymentJSON(name, image string) string {
           "image": %q,
           "imagePullPolicy": "Always",
           "ports": [{"containerPort": 8080, "protocol": "TCP"}]
+          %s
         }]
       }
     }
   }
-}`, name, Namespace, name, name, name, name, image)
+}`, name, Namespace, name, replicas, name, name, name, image, envBlock)
 }
 
-func applyDeployment(c *K8sClient, name, image string) error {
-	body := deploymentJSON(name, image)
+func applyDeployment(c *K8sClient, name, image string, replicas int, envVars map[string]string) error {
+	body := deploymentJSON(name, image, replicas, envVars)
 	collURL := fmt.Sprintf("%s/apis/apps/v1/namespaces/%s/deployments", c.BaseURL, Namespace)
 	resURL := collURL + "/" + name
 	return applyResource(c, collURL, resURL, body)
@@ -170,6 +186,143 @@ func applyResource(c *K8sClient, collURL, resURL, body string) error {
 		return fmt.Errorf("%s %s → HTTP %d: %s", method, targetURL, res.StatusCode, string(b))
 	}
 	return nil
+}
+
+type PodInfo struct {
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	Restarts  int       `json:"restarts"`
+	Age       string    `json:"age"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Delete cleans up the Deployment, Service, and Ingress for an app.
+func Delete(name string) error {
+	c, err := NewClient()
+	if err != nil {
+		return fmt.Errorf("k8s client: %w", err)
+	}
+
+	// Delete Ingress
+	ingressURL := fmt.Sprintf("%s/apis/networking.k8s.io/v1/namespaces/%s/ingresses/%s", c.BaseURL, Namespace, name)
+	_ = deleteResource(c, ingressURL)
+
+	// Delete Service
+	serviceURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s", c.BaseURL, Namespace, name)
+	_ = deleteResource(c, serviceURL)
+
+	// Delete Deployment
+	deployURL := fmt.Sprintf("%s/apis/apps/v1/namespaces/%s/deployments/%s", c.BaseURL, Namespace, name)
+	_ = deleteResource(c, deployURL)
+
+	return nil
+}
+
+func deleteResource(c *K8sClient, url string) error {
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	return nil
+}
+
+// GetPods queries Kubernetes API to list pods matching the app label.
+func GetPods(appName string) ([]PodInfo, error) {
+	c, err := NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("k8s client: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s/pods?labelSelector=app%%3D%s", c.BaseURL, Namespace, appName)
+	resp, err := c.HTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get pods (HTTP %d): %s", resp.StatusCode, string(b))
+	}
+
+	var podList struct {
+		Items []struct {
+			Metadata struct {
+				Name              string    `json:"name"`
+				CreationTimestamp time.Time `json:"creationTimestamp"`
+			} `json:"metadata"`
+			Status struct {
+				Phase             string `json:"phase"`
+				ContainerStatuses []struct {
+					RestartCount int `json:"restartCount"`
+					State        struct {
+						Waiting *struct {
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&podList); err != nil {
+		return nil, err
+	}
+
+	var pods []PodInfo
+	for _, item := range podList.Items {
+		restarts := 0
+		status := item.Status.Phase
+		if len(item.Status.ContainerStatuses) > 0 {
+			restarts = item.Status.ContainerStatuses[0].RestartCount
+			if item.Status.ContainerStatuses[0].State.Waiting != nil {
+				status = item.Status.ContainerStatuses[0].State.Waiting.Reason
+			}
+		}
+
+		age := time.Since(item.Metadata.CreationTimestamp).Round(time.Second).String()
+
+		pods = append(pods, PodInfo{
+			Name:      item.Metadata.Name,
+			Status:    status,
+			Restarts:  restarts,
+			Age:       age,
+			CreatedAt: item.Metadata.CreationTimestamp,
+		})
+	}
+
+	return pods, nil
+}
+
+// GetPodLogs gets the last 100 log lines of a specific pod.
+func GetPodLogs(podName string) (string, error) {
+	c, err := NewClient()
+	if err != nil {
+		return "", fmt.Errorf("k8s client: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s/pods/%s/log?tailLines=100", c.BaseURL, Namespace, podName)
+	resp, err := c.HTTPClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to get pod logs (HTTP %d): %s", resp.StatusCode, string(b))
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 

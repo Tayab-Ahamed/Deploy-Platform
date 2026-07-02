@@ -1,11 +1,11 @@
 import React from 'react'
 
 const CONFIG = {
-  queued:    { label: 'Queued',     color: '#7c7c8a', bg: 'rgba(124,124,138,0.12)', dot: '#7c7c8a' },
-  building:  { label: 'Building',   color: '#f0a500', bg: 'rgba(240,165,0,0.12)',   dot: '#f0a500', pulse: true },
-  deploying: { label: 'Deploying',  color: '#4fa8e0', bg: 'rgba(79,168,224,0.12)',  dot: '#4fa8e0', pulse: true },
-  live:      { label: 'Live',       color: '#22c77a', bg: 'rgba(34,199,122,0.12)',  dot: '#22c77a' },
-  failed:    { label: 'Failed',     color: '#e05454', bg: 'rgba(224,84,84,0.12)',   dot: '#e05454' },
+  queued:    { label: 'Queued',     color: 'var(--muted)', bg: 'rgba(130,130,146,0.08)', dot: 'var(--muted)' },
+  building:  { label: 'Building',   color: 'var(--amber)', bg: 'var(--amber-glow)',      dot: 'var(--amber)', pulse: true },
+  deploying: { label: 'Deploying',  color: 'var(--blue)',  bg: 'var(--blue-glow)',       dot: 'var(--blue)',  pulse: true },
+  live:      { label: 'Live',       color: 'var(--green)', bg: 'var(--green-glow)',      dot: 'var(--green)' },
+  failed:    { label: 'Failed',     color: 'var(--red)',   bg: 'var(--red-glow)',        dot: 'var(--red)' },
 }
 
 export default function StatusBadge({ status }) {

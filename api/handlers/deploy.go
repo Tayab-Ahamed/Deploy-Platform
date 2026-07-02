@@ -39,6 +39,15 @@ func DeployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	envVarsJSON := strings.TrimSpace(r.FormValue("env_vars"))
+	var envVars map[string]string
+	if envVarsJSON != "" {
+		if err := json.Unmarshal([]byte(envVarsJSON), &envVars); err != nil {
+			jsonError(w, "invalid env_vars JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	file, _, err := r.FormFile("source")
 	if err != nil {
 		jsonError(w, "source zip file required", http.StatusBadRequest)
@@ -83,6 +92,8 @@ func DeployHandler(w http.ResponseWriter, r *http.Request) {
 		Status:    models.StatusQueued,
 		Logs:      []string{"Job queued — waiting for build worker..."},
 		CreatedAt: time.Now(),
+		EnvVars:   envVars,
+		Replicas:  1,
 	}
 	builder.Store.Set(job)
 	builder.BuildQueue <- job

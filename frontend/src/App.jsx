@@ -13,7 +13,6 @@ export default function App() {
     listDeploys()
       .then(data => {
         setDeploys(Array.isArray(data) ? data : [])
-        // Resume polling for any in-progress jobs
         ;(Array.isArray(data) ? data : []).forEach(job => {
           if (['queued', 'building', 'deploying'].includes(job.status)) {
             startPolling(job.id)
@@ -59,6 +58,15 @@ export default function App() {
     startPolling(id)
   }, [startPolling])
 
+  const handleDeployDeleted = useCallback((id) => {
+    // Clear polling if running
+    if (pollRefs.current[id]) {
+      clearInterval(pollRefs.current[id])
+      delete pollRefs.current[id]
+    }
+    setDeploys(prev => prev.filter(d => d.id !== id))
+  }, [])
+
   // Clean up on unmount
   useEffect(() => {
     return () => Object.values(pollRefs.current).forEach(clearInterval)
@@ -72,47 +80,57 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
       {/* Top nav */}
-      <nav style={{
-        borderBottom: '1px solid var(--border)',
-        padding: '0 24px',
-        height: 52,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        background: 'var(--bg2)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-      }}>
-        <span style={{ fontSize: 18 }}>🚀</span>
-        <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em' }}>Deploy Platform</span>
+      <nav 
+        className="glass-panel animate-fade-in" 
+        style={{
+          borderBottom: '1px solid var(--border)',
+          borderLeft: 'none', borderRight: 'none', borderTop: 'none',
+          padding: '0 32px',
+          height: 60,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+        }}
+      >
+        <span style={{ fontSize: 20, filter: 'drop-shadow(0 0 6px rgba(99, 102, 241, 0.4))' }}>🚀</span>
+        <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em', background: 'linear-gradient(to right, #fff, #a5b4fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          Deploy Platform
+        </span>
         <span style={{
-          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
-          background: 'rgba(124,111,247,0.15)', color: '#7c6ff7',
-          padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase',
-        }}>LOCAL</span>
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+          background: 'var(--accent-glow)', color: '#818cf8',
+          padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase',
+          border: '1px solid rgba(99, 102, 241, 0.2)',
+        }}>
+          WSL2 Cluster
+        </span>
         <div style={{ flex: 1 }} />
-        <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'flex', gap: 20 }}>
           <span>Total: <b style={{ color: 'var(--text)' }}>{stats.total}</b></span>
-          <span>Live: <b style={{ color: '#22c77a' }}>{stats.live}</b></span>
-          {stats.building > 0 && <span>Building: <b style={{ color: '#f0a500' }}>{stats.building}</b></span>}
-          {stats.failed > 0 && <span>Failed: <b style={{ color: '#e05454' }}>{stats.failed}</b></span>}
+          <span>Live: <b style={{ color: 'var(--green)' }}>{stats.live}</b></span>
+          {stats.building > 0 && <span style={{ animation: 'pulse 1.5s infinite' }}>Building: <b style={{ color: 'var(--amber)' }}>{stats.building}</b></span>}
+          {stats.failed > 0 && <span>Failed: <b style={{ color: 'var(--red)' }}>{stats.failed}</b></span>}
         </div>
       </nav>
 
       {/* Main content */}
-      <main style={{ maxWidth: 820, margin: '0 auto', padding: '32px 20px' }}>
+      <main className="animate-fade-in" style={{ maxWidth: 880, margin: '0 auto', padding: '40px 24px' }}>
 
         {/* Hero */}
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>
-            Deployments
-          </h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>
-            Zip your project, give it a name, and deploy it as a Docker container on Kubernetes.
-          </p>
+        <div style={{ marginBottom: 36, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 6 }}>
+              Applications
+            </h1>
+            <p style={{ color: 'var(--muted)', fontSize: 14 }}>
+              Push package folders to build containers and deploy instantly to Kubernetes.
+            </p>
+          </div>
         </div>
 
         {/* Deploy form */}
@@ -120,22 +138,22 @@ export default function App() {
 
         {/* Deployment list */}
         {loading ? (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '48px 0' }}>
-            Loading deployments...
+          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '64px 0', fontSize: 13 }}>
+            ⏳ Loading cluster state...
           </div>
         ) : deploys.length === 0 ? (
-          <div style={{
-            textAlign: 'center', color: 'var(--muted)', padding: '48px 0',
-            border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)',
+          <div className="glass-panel" style={{
+            textAlign: 'center', color: 'var(--muted)', padding: '64px 32px',
+            borderRadius: 'var(--radius-lg)', border: '1px dashed var(--border)',
           }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
-            <div style={{ fontWeight: 500, marginBottom: 6 }}>No deployments yet</div>
-            <div style={{ fontSize: 12 }}>Upload a zip above to get started</div>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>📭</div>
+            <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 16, marginBottom: 6 }}>No active deployments</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Upload a zip file above to roll out your first application.</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {deploys.map(job => (
-              <DeployCard key={job.id} job={job} />
+              <DeployCard key={job.id} job={job} onDeployDeleted={handleDeployDeleted} />
             ))}
           </div>
         )}
