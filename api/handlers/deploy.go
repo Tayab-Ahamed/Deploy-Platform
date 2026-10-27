@@ -3,6 +3,8 @@ package handlers
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -28,10 +30,18 @@ func DeployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	// ParseMultipartForm's argument is a memory threshold, not a body limit.
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			jsonError(w, "request exceeds 64 MiB upload limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		jsonError(w, "request too large or not multipart", http.StatusBadRequest)
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 
 	appName := strings.TrimSpace(r.FormValue("app_name"))
 	if !validAppName.MatchString(appName) {
@@ -114,13 +124,15 @@ func unzip(src, dest string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		rel := filepath.Clean(f.Name)
-		if strings.HasPrefix(rel, "..") {
-			continue // zip-slip guard
+		if !filepath.IsLocal(f.Name) || strings.Contains(f.Name, `\`) {
+			return fmt.Errorf("unsafe archive path: %q", f.Name)
 		}
+		rel := filepath.Clean(f.Name)
 		target := filepath.Join(dest, rel)
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(target, 0755)
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
 			continue
 		}
 		if err = os.MkdirAll(filepath.Dir(target), 0755); err != nil {
